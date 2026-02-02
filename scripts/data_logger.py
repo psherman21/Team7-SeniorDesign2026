@@ -1,3 +1,7 @@
+# Philip Sherman
+# Team 7 - Senior Design
+# 2/2/2025
+
 import serial
 import csv
 import time
