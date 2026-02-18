@@ -8,3 +8,11 @@ Input Data will be read in this format and monitored at a rate of 20Hz:
 
 thumb,index,middle,ring,pinky,label
 32,45,78,80,60,A
+
+# Normal Operation
+
+Collecting Data:
+1. 
+2.
+3.
+4.
