@@ -7,8 +7,3 @@ async def scan():
         print(d)
 
 asyncio.run(scan())
-
-
-#{"sensors":[0,10,20,30,40],"timestamp":143622}
-#{"sensors":[0,10,20,30,40],"timestamp":143672}
-{0,10,20,30,40}
