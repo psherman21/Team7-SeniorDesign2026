@@ -5,19 +5,15 @@
 
 import tkinter as tk
 from tkinter import ttk, messagebox
-import serial
-import threading
-import time
+import serial, threading, time, joblib, ctypes
 import numpy as np
-import joblib
 from collections import deque
-import ctypes
-import json
+from PIL import Image, ImageTk
 
 # Color Presets
-PRIMARY_COLOR = "#001F54"
 SECONDARY_COLOR = "#ADD8E6"
-BG_COLOR = "#F0F8FF"
+PRIMARY_COLOR = "#1E3A8A"      # Deep blue
+BG_COLOR = "#E0E7EF"           # Medium gray-blue
 CONFIDENCE_HIGH = "#4CAF50"
 CONFIDENCE_MED = "#FFC107"
 CONFIDENCE_LOW = "#F44336"
@@ -46,11 +42,29 @@ class GloveUI(tk.Tk):
 
     def setup_ui(self):
         ctypes.windll.shcore.SetProcessDpiAwareness(True)
-        # ===== Title =====
-        title_label = tk.Label(self, text="Team 7 Senior Design Project Demo",
+        # ===== Title with Logo =====
+        title_frame = tk.Frame(self, bg=BG_COLOR)
+        title_frame.pack(pady=5, fill="x", padx=20)
+        
+        # Logo on the right
+        logo_image = Image.open("pitt_logo.png")
+        
+        # Resize to fit nicely next to title
+        logo_height = 70
+        aspect_ratio = logo_image.width / logo_image.height
+        logo_width = int(logo_height * aspect_ratio)
+        logo_image = logo_image.resize((logo_width, logo_height), Image.Resampling.LANCZOS)
+        
+        logo_photo = ImageTk.PhotoImage(logo_image)
+        logo_label = tk.Label(title_frame, image=logo_photo, bg=BG_COLOR)
+        logo_label.image = logo_photo  # Keep a reference!
+        logo_label.pack(side="right", padx=10)
+
+        # Title on the left
+        title_label = tk.Label(title_frame, text="Team 7 Senior Design Project Demo",
                                font=("Arial", 24, "bold"),
                                bg=BG_COLOR, fg=PRIMARY_COLOR)
-        title_label.pack(pady=1)
+        title_label.place(relx=0.5, rely=0.5, anchor="center")
         
         # ===== Main Container =====
         main_container = tk.Frame(self, bg=BG_COLOR)
@@ -59,7 +73,6 @@ class GloveUI(tk.Tk):
         # ===== LEFT COLUMN - Preferences =====
         left_column = tk.Frame(main_container, bg=BG_COLOR)
         left_column.pack(side="left", fill="y", padx=10)
-        left_column.config(width=250)
         
         # Connection Control
         connection_frame = tk.LabelFrame(left_column, text="Connection", 
@@ -80,7 +93,7 @@ class GloveUI(tk.Tk):
         tk.Button(connection_frame, text="Connect", bg=PRIMARY_COLOR, fg="white",
                  command=self.connect_glove, font=("Arial", 9, "bold")).pack(side="left",padx=2)
         tk.Button(connection_frame, text="Calibrate", bg=PRIMARY_COLOR, fg="white",
-                 command=self.calibrate_sensors, font=("Arial", 9)).pack(side="left",padx=2)
+                 command=self.calibrate_sensors, font=("Arial", 9, "bold")).pack(side="left",padx=2)
         
         # Recognition Control
         recognition_frame = tk.LabelFrame(left_column, text="Recognition Control",
@@ -100,7 +113,7 @@ class GloveUI(tk.Tk):
                                    font=("Arial", 11, "bold"), padx=8, pady=2)
         pref_frame.pack(fill="x", pady=2)
         
-        # KNN Neighbors (changed from "sensitivity")
+        # KNN Neighbors
         tk.Label(pref_frame, text="KNN Neighbors (k)", font=("Arial", 9, "bold"),
                 bg=BG_COLOR, fg=PRIMARY_COLOR).pack(anchor="w")
         self.k_neighbors = tk.IntVar(value=5)
@@ -246,21 +259,22 @@ class GloveUI(tk.Tk):
 
     # ===== Connection Methods =====
     def read_sensor_packet(self):
-        """Read one sensor packet in format {1,2,3,4,5}"""
+        """Read one sensor packet - handles both {1,2,3,4,5} and 1,2,3,4,5 formats"""
         if self.ser and self.ser.in_waiting:
             try:
                 line = self.ser.readline().decode('utf-8').strip()
 
-                # Remove curly braces
+                # Remove curly braces if present
                 if line.startswith("{") and line.endswith("}"):
                     line = line[1:-1]
 
-                    values = line.split(',')
+                values = line.split(',')
 
-                    if len(values) == 5:
-                        return [float(v) for v in values]
+                if len(values) == 5:
+                    return [float(v) for v in values]
 
-            except Exception:
+            except Exception as e:
+                print(f"Read error: {e}")
                 pass
 
         return None
@@ -275,6 +289,10 @@ class GloveUI(tk.Tk):
         except Exception as e:
             self.status_label.config(text="Status: Connection Failed", fg=CONFIDENCE_LOW)
             messagebox.showerror("Error", f"Failed to connect: {str(e)}")
+
+        self.is_recognizing = True
+        recognition_thread = threading.Thread(target=self.recognition_loop, daemon=True)
+        recognition_thread.start()
     
     def calibrate_sensors(self):
         """Calibration routine: user opens and closes hand"""
@@ -323,7 +341,7 @@ class GloveUI(tk.Tk):
         else:
             messagebox.showerror("Error", "Calibration failed - no data received")
     
-    def notification_handler(self, sender, data):
+    def notification_handler(self, data):
         """Handles incoming Bluetooth data"""
         try:
             line = data.decode().strip()
@@ -348,9 +366,6 @@ class GloveUI(tk.Tk):
         if not self.ser:
             messagebox.showwarning("Warning", "Connect glove first!")
             return
-        if not self.model:
-            messagebox.showwarning("Warning", "Load model first!")
-            return
         
         self.is_recognizing = True
         recognition_thread = threading.Thread(target=self.recognition_loop, daemon=True)
@@ -369,11 +384,15 @@ class GloveUI(tk.Tk):
             sensor_values = self.read_sensor_packet()
 
             if sensor_values:
+                # Show the raw voltage values in the display
+                self.update_sensor_display(sensor_values)
+                
+                # Apply calibration for prediction purposes
                 calibrated = self.apply_calibration(sensor_values)
-                self.update_sensor_display(calibrated)
                 self.sensor_buffer.append(calibrated)
 
-                if len(self.sensor_buffer) >= self.smoothing_window.get():
+                # Only predict if model is loaded
+                if self.model and len(self.sensor_buffer) >= self.smoothing_window.get():
                     smoothed = np.mean(
                         list(self.sensor_buffer)[-self.smoothing_window.get():],
                         axis=0
@@ -448,8 +467,14 @@ class GloveUI(tk.Tk):
         """Update real-time sensor value display"""
         for i, (value_lbl, bar) in enumerate(self.sensor_labels):
             if i < len(values):
-                value_lbl.config(text=f"{values[i]:.0f}")
-                bar['value'] = min(values[i], 100)
+                # Display the raw voltage value
+                value_lbl.config(text=f"{values[i]:.2f}V")
+                
+                # Scale the progress bar (assuming 0-3.3V range)
+                # Convert to 0-100 for the bar display
+                bar_value = (values[i] / 3.3) * 100
+                bar_value = max(0, min(100, bar_value))  # Clamp to 0-100
+                bar['value'] = bar_value
     
     # ===== Recording Methods =====
     def record_gesture(self):
