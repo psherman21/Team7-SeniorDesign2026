@@ -1,7 +1,7 @@
 # Philip Sherman
 # Team 7 - Senior Design
 # 2/2/2026 - Version 0.1.1
-# Current - 2/23/2026, v0.2.1
+# Current - 2/23/2026, v0.2.4
 
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -12,8 +12,8 @@ from PIL import Image, ImageTk
 
 # Color Presets
 SECONDARY_COLOR = "#ADD8E6"
-PRIMARY_COLOR = "#1E3A8A"      # Deep blue
-BG_COLOR = "#E0E7EF"           # Medium gray-blue
+PRIMARY_COLOR = "#1E3A8A"
+BG_COLOR = "#E0E7EF"
 CONFIDENCE_HIGH = "#4CAF50"
 CONFIDENCE_MED = "#FFC107"
 CONFIDENCE_LOW = "#F44336"
@@ -34,6 +34,11 @@ class GloveUI(tk.Tk):
         self.recorded_data = []
         self.confusion_matrix = None
 
+        # Sample rate tracking
+        self.packet_count = 0
+        self.last_rate_update = time.time()
+        self.current_sample_rate = 0
+
         # Calibraton values
         self.sensor_min = [0, 0, 0, 0, 0]
         self.sensor_max = [100, 100, 100, 100, 100]
@@ -45,6 +50,23 @@ class GloveUI(tk.Tk):
         # ===== Title with Logo =====
         title_frame = tk.Frame(self, bg=BG_COLOR)
         title_frame.pack(pady=5, fill="x", padx=20)
+
+        # Sampling rate indicator
+        rate_frame = tk.Frame(title_frame, bg=BG_COLOR)
+        rate_frame.pack(pady=5, fill="x", padx=20)
+
+        # Pulsing dot (canvas for animation)
+        self.pulse_canvas = tk.Canvas(rate_frame, width=20, height=20, 
+                                     bg=BG_COLOR, highlightthickness=0)
+        self.pulse_canvas.pack(side="left", padx=5)
+        self.pulse_dot = self.pulse_canvas.create_oval(5, 5, 15, 15, 
+                                                       fill="gray", outline="")
+        
+        # Sample rate text
+        self.rate_label = tk.Label(rate_frame, text="-- Hz", 
+                                   font=("Arial", 11, "bold"),
+                                   bg=BG_COLOR, fg=PRIMARY_COLOR)
+        self.rate_label.pack(side="left")
         
         # Logo on the right
         logo_image = Image.open("pitt_logo.png")
@@ -90,8 +112,13 @@ class GloveUI(tk.Tk):
         self.port_entry.insert(0, "COM5")
         self.port_entry.pack(pady=2)
         
-        tk.Button(connection_frame, text="Connect", bg=PRIMARY_COLOR, fg="white",
-                 command=self.connect_glove, font=("Arial", 9, "bold")).pack(side="left",padx=2)
+        self.connect_button = tk.Button(connection_frame, text="Connect", 
+                                       bg=PRIMARY_COLOR, fg="white",
+                                       command=self.toggle_connection, 
+                                       font=("Arial", 9, "bold"),
+                                       width=12)  # Fixed width prevents resizing
+        self.connect_button.pack(side="left", padx=2)
+
         tk.Button(connection_frame, text="Calibrate", bg=PRIMARY_COLOR, fg="white",
                  command=self.calibrate_sensors, font=("Arial", 9, "bold")).pack(side="left",padx=2)
         
@@ -154,8 +181,8 @@ class GloveUI(tk.Tk):
         
         tk.Label(recording_frame, text="Recording Time (s):", font=("Arial", 9),
                 bg=BG_COLOR, fg=PRIMARY_COLOR).pack()
-        self.record_window = tk.DoubleVar(value=2.0)
-        tk.Scale(recording_frame, from_=0.5, to=5.0, resolution=0.1, orient=tk.HORIZONTAL,
+        self.record_window = tk.DoubleVar(value=3.0)
+        tk.Scale(recording_frame, from_=1, to=5.0, resolution=0.1, orient=tk.HORIZONTAL,
                 variable=self.record_window, bg=SECONDARY_COLOR, fg=PRIMARY_COLOR,
                 highlightbackground=BG_COLOR).pack(fill='x', pady=2)
         
@@ -163,8 +190,6 @@ class GloveUI(tk.Tk):
                  command=self.record_gesture, font=("Arial", 9, "bold")).pack(pady=2)
         tk.Button(recording_frame, text="Save to CSV", bg=CONFIDENCE_HIGH, fg="white",
                  command=self.save_gesture, font=("Arial", 9)).pack(pady=2)
-        tk.Button(recording_frame, text="Discard", bg=CONFIDENCE_LOW, fg="white",
-                 command=self.discard_gesture, font=("Arial", 9)).pack(pady=2)
         
         # ===== RIGHT COLUMN =====
         right_column = tk.Frame(main_container, bg=BG_COLOR)
@@ -248,7 +273,7 @@ class GloveUI(tk.Tk):
                                bg=BG_COLOR, fg=PRIMARY_COLOR, width=7, anchor="w")
             name_lbl.pack(side="left", padx=7)
             
-            value_lbl = tk.Label(frame, text="0", font=("Arial", 11),
+            value_lbl = tk.Label(frame, text="0.00 V", font=("Arial", 11,"bold"),
                                 bg=BG_COLOR, fg=PRIMARY_COLOR, width=4)
             value_lbl.pack(side="left")
             
@@ -279,20 +304,55 @@ class GloveUI(tk.Tk):
 
         return None
 
+    def toggle_connection(self):
+        """Toggle between connect and disconnect"""
+        if self.ser and self.ser.is_open:
+            # Currently connected - disconnect
+            self.disconnect_glove()
+        else:
+            # Currently disconnected - connect
+            self.connect_glove()
+
     def connect_glove(self):
+        """Connect to the glove"""
         port = self.port_entry.get()
         try:
             self.ser = serial.Serial(port, 115200, timeout=1)
             time.sleep(2)
+            
+            # Update UI
             self.status_label.config(text="Status: Connected", fg=CONFIDENCE_HIGH)
-            messagebox.showinfo("Success", f"Connected to glove on {port}")
+            self.connect_button.config(text="Disconnect", bg=CONFIDENCE_LOW)
+            
+            # Start data display automatically
+            self.is_recognizing = True
+            recognition_thread = threading.Thread(target=self.recognition_loop, daemon=True)
+            recognition_thread.start()
+            
         except Exception as e:
             self.status_label.config(text="Status: Connection Failed", fg=CONFIDENCE_LOW)
             messagebox.showerror("Error", f"Failed to connect: {str(e)}")
 
-        self.is_recognizing = True
-        recognition_thread = threading.Thread(target=self.recognition_loop, daemon=True)
-        recognition_thread.start()
+    def disconnect_glove(self):
+        """Disconnect from the glove"""
+        # Stop recognition loop
+        self.is_recognizing = False
+        time.sleep(0.1)  # Give thread time to stop
+        
+        # Close serial port
+        if self.ser and self.ser.is_open:
+            self.ser.close()
+        
+        # Update UI
+        self.status_label.config(text="Status: Disconnected", fg="red")
+        self.connect_button.config(text="Connect", bg=PRIMARY_COLOR)
+        self.rate_label.config(text="-- Hz")
+        self.pulse_canvas.itemconfig(self.pulse_dot, fill="gray")
+        
+        # Reset sensor displays
+        for value_lbl, bar in self.sensor_labels:
+            value_lbl.config(text="0.00 V")
+            bar['value'] = 0
     
     def calibrate_sensors(self):
         """Calibration routine: user opens and closes hand"""
@@ -384,6 +444,21 @@ class GloveUI(tk.Tk):
             sensor_values = self.read_sensor_packet()
 
             if sensor_values:
+                # Count packets for sample rate calculation
+                self.packet_count += 1
+                
+                # Pulse the dot (green when receiving data)
+                self.pulse_canvas.itemconfig(self.pulse_dot, fill=CONFIDENCE_HIGH)
+                self.after(50, lambda: self.pulse_canvas.itemconfig(self.pulse_dot, fill="lightgreen"))
+                
+                # Update sample rate every second
+                elapsed = time.time() - self.last_rate_update
+                if elapsed >= 1.0:
+                    self.current_sample_rate = self.packet_count / elapsed
+                    self.rate_label.config(text=f"{self.current_sample_rate:.1f} Hz")
+                    self.packet_count = 0
+                    self.last_rate_update = time.time()
+                
                 # Show the raw voltage values in the display
                 self.update_sensor_display(sensor_values)
                 
@@ -421,7 +496,7 @@ class GloveUI(tk.Tk):
             # Get prediction with probabilities
             prediction = self.model.predict(X_scaled)[0]
             
-            # Get prediction probabilities (for KNN, use predict_proba)
+            # Get prediction probabilities (use predict_proba for KNN)
             if hasattr(self.model, 'predict_proba'):
                 probabilities = self.model.predict_proba(X_scaled)[0]
                 confidence = np.max(probabilities) * 100
@@ -468,7 +543,7 @@ class GloveUI(tk.Tk):
         for i, (value_lbl, bar) in enumerate(self.sensor_labels):
             if i < len(values):
                 # Display the raw voltage value
-                value_lbl.config(text=f"{values[i]:.2f}V")
+                value_lbl.config(text=f"{values[i]:.2f} V")
                 
                 # Scale the progress bar (assuming 0-3.3V range)
                 # Convert to 0-100 for the bar display
@@ -524,11 +599,9 @@ class GloveUI(tk.Tk):
             self.recorded_data = []
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save: {str(e)}")
-    
+
     def discard_gesture(self):
-        """Discard recorded data"""
         self.recorded_data = []
-        messagebox.showinfo("Discarded", "Recorded data discarded")
 
 if __name__ == "__main__":
     app = GloveUI()

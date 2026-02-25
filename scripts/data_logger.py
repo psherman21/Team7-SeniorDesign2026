@@ -1,6 +1,7 @@
 # Philip Sherman
 # Team 7 - Senior Design
 # 2/2/2026
+# v0.2.4
 
 import serial
 import csv
@@ -79,7 +80,7 @@ with open(OUTPUT_FILE, mode="w", newline="") as file:
                     # Validate data
                     if len(values) != EXPECTED_SENSORS:
                         error_count += 1
-                        print(f"⚠ Warning: Expected {EXPECTED_SENSORS} values, got {len(values)}")
+                        print(f"Warning: Expected {EXPECTED_SENSORS} values, got {len(values)}")
                         continue
                     
                     # Convert to float and validate range

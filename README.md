@@ -22,7 +22,7 @@ Calibrate sensors - A bandaid solution to people having different size hands, st
 
 Hand Size - 0.5x to 2.0x, another bandaid solution to people having different size hands
 
-KNN Neighbors - Purpose is to set the 'k' parameter for KNN algorithm, where lower values cause a more sensitive algorithm, while higher values are more stable, but may underfit.
+KNN Neighbors - Purpose is to set the 'k' parameter for KNN algorithm, where lower values cause a more sensitive algorithm, while higher values are more stable, but may underfit. In other words, its the number of values from the training data that are being used in the recognition.
 
 Confidence Threshold Slider - Show minimum confidence required to display a prediction.
 
@@ -38,7 +38,17 @@ Collecting Data:
 # Sensor Format Styles
 {"sensors":[0,10,20,30,40],"timestamp":143622}
 {"sensors":[0,10,20,30,40],"timestamp":143672}
-{0,10,20,30,40}
+{0,10,20,30,40} <- using this one
 
 # Bluetooth
 We've been going back and forth between using BLE and SPP bluetooth. For now, we are using SPP because it is a little less complicated code-wise, and its functionally the same to just using a regular serial connection. For the future, we intend to implement BLE.
+
+# Things to add / TO-DO
+Maybe a pulsing dot to represent the frequency of data being sent
+^ adding onto this maybe a display of the current rate that data is being received/read at (sample rate)
+Current Max/min of sensor data
+    - could help with debugging
+Disconnect button / dynamically changing connect glove button
+Make the UI a little more smooth and a little less rigid
+
+#
