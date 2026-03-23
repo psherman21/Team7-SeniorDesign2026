@@ -18,9 +18,7 @@ The UI is divided into two columns: the left column is for parameters, and the r
 # Preferences
 Connection - Connect/Disconnect to glove through specified COM port
 
-Calibrate sensors - A bandaid solution to people having different size hands, stores maxs and mins for each finger.
-
-Hand Size - 0.5x to 2.0x, another bandaid solution to people having different size hands
+Calibrate sensors - A solution to people having different size hands, stores maxs and mins for each finger.
 
 KNN Neighbors - Purpose is to set the 'k' parameter for KNN algorithm, where lower values cause a more sensitive algorithm, while higher values are more stable, but may underfit. In other words, its the number of values from the training data that are being used in the recognition.
 
@@ -39,6 +37,7 @@ Collecting Data:
 {"sensors":[0,10,20,30,40],"timestamp":143622}
 {"sensors":[0,10,20,30,40],"timestamp":143672}
 {0,10,20,30,40} <- using this one
+flex1 flex2 flex3 flex4 flex5 ax ay az gx gy gz
 
 # Bluetooth
 We've been going back and forth between using BLE and SPP bluetooth. For now, we are using SPP because it is a little less complicated code-wise, and its functionally the same to just using a regular serial connection. For the future, we intend to implement BLE.
@@ -50,5 +49,6 @@ Current Max/min of sensor data
     - could help with debugging
 Disconnect button / dynamically changing connect glove button
 Make the UI a little more smooth and a little less rigid
+Gesture Stability Featuring
 
-#
+Be clearer!

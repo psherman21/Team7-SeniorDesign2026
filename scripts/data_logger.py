@@ -1,8 +1,3 @@
-# Philip Sherman
-# Team 7 - Senior Design
-# 2/2/2026
-# v0.2.4
-
 import serial
 import csv
 import time
@@ -30,9 +25,13 @@ ENABLE_SMOOTHING = True
 SMOOTHING_WINDOW = 5   # Number of samples being averaged
 
 # Validation Settings
-MIN_SENSOR_VALUE = 0
-MAX_SENSOR_VALUE = 100
-EXPECTED_SENSORS = 5
+MIN_FLEX_VALUE = 0
+MAX_FLEX_VALUE = 100
+MIN_ACCEL_VALUE = -20000  # Typical range for accelerometer
+MAX_ACCEL_VALUE = 20000
+MIN_GYRO_VALUE = -20000   # Typical range for gyroscope
+MAX_GYRO_VALUE = 20000
+EXPECTED_SENSORS = 11  # 5 flex + 3 accel + 3 gyro
 
 # ===== Initialize =====
 print("="*50)
@@ -68,7 +67,9 @@ start_time = time.time()
 
 with open(OUTPUT_FILE, mode="w", newline="") as file:
     writer = csv.writer(file)
-    writer.writerow(["timestamp", "thumb", "index", "middle", "ring", "pinky", "label"])
+    writer.writerow(["timestamp", "flex_1", "flex_2", "flex_3", "flex_4", "flex_5",
+                     "accel_x", "accel_y", "accel_z",
+                     "gyro_x", "gyro_y", "gyro_z", "label"])
     
     try:
         while True:
@@ -89,10 +90,22 @@ with open(OUTPUT_FILE, mode="w", newline="") as file:
                     for i, v in enumerate(values):
                         try:
                             val = float(v)
-                            if not (MIN_SENSOR_VALUE <= val <= MAX_SENSOR_VALUE):
-                                print(f"WARNING: Sensor {i} value {val} out of range")
-                                valid = False
-                                break
+                            if i < 5:  # Flex sensors (0-4)
+                                if not (MIN_FLEX_VALUE <= val <= MAX_FLEX_VALUE):
+                                    print(f"WARNING: Flex sensor {i} value {val} out of range")
+                                    valid = False
+                                    break
+                            elif i < 8:  # Accelerometer (5-7)
+                                if not (MIN_ACCEL_VALUE <= val <= MAX_ACCEL_VALUE):
+                                    print(f"WARNING: Accelerometer {i-5} value {val} out of range")
+                                    valid = False
+                                    break
+                            else:  # Gyroscope (8-10)
+                                if not (MIN_GYRO_VALUE <= val <= MAX_GYRO_VALUE):
+                                    print(f"WARNING: Gyroscope {i-8} value {val} out of range")
+                                    valid = False
+                                    break
+
                             sensor_values.append(val)
                         except ValueError:
                             print(f"WARNING: Invalid value '{v}' for sensor {i}")
@@ -122,8 +135,11 @@ with open(OUTPUT_FILE, mode="w", newline="") as file:
                     if sample_count % 10 == 0:
                         elapsed = time.time() - start_time
                         rate = sample_count / elapsed if elapsed > 0 else 0
-                        print(f"Sample {sample_count} | Rate: {rate:.1f} Hz | Values: [{', '.join([f'{v:.1f}' for v in final_values])}]")
-                
+
+                        flex_str = ', '.join([f'{v:.1f}' for v in final_values[:5]])
+                        accel_mag = np.sqrt(sum([v**2 for v in final_values[5:8]]))
+                        gyro_mag = np.sqrt(sum([v**2 for v in final_values[8:11]]))
+                        print(f"Sample {sample_count} | Rate: {rate:.1f} Hz | Flex: [{flex_str}] | Accel: {accel_mag:.0f} | Gyro: {gyro_mag:.0f}")
                 except UnicodeDecodeError:
                     error_count += 1
                     print("WARNING: Failed to decode serial data")
@@ -145,6 +161,6 @@ print(f"  Duration: {elapsed:.1f} seconds")
 if elapsed > 0:
     print(f"  Average rate: {sample_count/elapsed:.1f} Hz")
 print(f"  Output file: {OUTPUT_FILE}")
-print(f"\n✓ Data saved successfully!\n")
+print(f"\n Data saved successfully!\n")
 
 ser.close()
