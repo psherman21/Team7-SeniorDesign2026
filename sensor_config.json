@@ -1,0 +1,16 @@
+{
+    "fields": {
+        "timestamp": true,
+        "flex_1": true,
+        "flex_2": true,
+        "flex_3": true,
+        "flex_4": true,
+        "flex_5": true,
+        "accel_x": true,
+        "accel_y": true,
+        "accel_z": true,
+        "gyro_x": true,
+        "gyro_y": true,
+        "gyro_z": true
+    }
+}

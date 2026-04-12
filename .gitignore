@@ -2,3 +2,8 @@ __pycache__/
 .env
 *.pyc
 data/raw/*.csv
+data/Brennan/*.csv
+data/external/*.csv
+data/Philip/*.csv
+data/Ryan/*.csv
+external_data/*.csv

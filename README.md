@@ -43,12 +43,20 @@ flex1 flex2 flex3 flex4 flex5 ax ay az gx gy gz
 We've been going back and forth between using BLE and SPP bluetooth. For now, we are using SPP because it is a little less complicated code-wise, and its functionally the same to just using a regular serial connection. For the future, we intend to implement BLE.
 
 # Things to add / TO-DO
-Maybe a pulsing dot to represent the frequency of data being sent
-^ adding onto this maybe a display of the current rate that data is being received/read at (sample rate)
-Current Max/min of sensor data
-    - could help with debugging
-Disconnect button / dynamically changing connect glove button
-Make the UI a little more smooth and a little less rigid
 Gesture Stability Featuring
+Dataset control for ML algorithm
+Streamline ML
+Work on Demo
+Add Resting Position!
 
 Be clearer!
+
+For gesture recognition, maybe scan through and check the highest frequency for each sensor, and use that for guessing
+
+LOG:
+
+4/12/26:
+Data collection
+20 second window, 3 times a letter -> ~1000 samples per
+Just a few letters/gestures: A, B, C, L, O, W, Y, 5
+
