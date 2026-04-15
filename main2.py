@@ -25,8 +25,8 @@ CONFIDENCE_MED = "#FFC107"
 CONFIDENCE_LOW = "#F44336"
 
 # ML / Smoothing Constants
-K_NEIGHBORS = 1
-SMOOTHING_WINDOW = 1
+K_NEIGHBORS = 5
+SMOOTHING_WINDOW = 3
 
 # Demo Mode Constants
 DEMO_HOLD_DURATION  = 1.5   # seconds to hold a letter before confirming (~24 frames at 16Hz)
@@ -46,7 +46,7 @@ class GloveUI(tk.Tk):
         self.model = None
         self.scaler = None
         self.is_recognizing = False
-        self.sensor_buffer = deque(maxlen=5)
+        self.sensor_buffer = deque(maxlen=20)
         self.recorded_data = []
         self.confusion_matrix = None
 
@@ -59,7 +59,7 @@ class GloveUI(tk.Tk):
         # Gesture stability filtering
         self.prediction_history = deque(maxlen=5)
         self.stable_gesture = None
-        self.stability_threshold = 2
+        self.stability_threshold = 3
 
         # Calibration values
         self.sensor_min = [0, 0, 0, 0, 0]
@@ -182,8 +182,6 @@ class GloveUI(tk.Tk):
                 command=self.refresh_datasets, font=("Arial", 13, "bold"),
                 width=2, relief="flat").pack(side="left")
         
-        tk.Button(recognition_frame, text="Train Model", bg="#1565C0", fg="white",
-                 command=self.train_model, font=("Arial", 9, "bold")).pack(pady=(2,0))
         tk.Button(recognition_frame, text="Load Model", bg=PRIMARY_COLOR, fg="white",
                  command=self.load_model, font=("Arial", 9, "bold")).pack(pady=2)
         tk.Button(recognition_frame, text="Pause Recognition", bg=CONFIDENCE_LOW, fg="white",
@@ -203,7 +201,7 @@ class GloveUI(tk.Tk):
                                    font=("Arial", 11, "bold"), padx=8, pady=2)
         conf_frame.pack(fill="x", pady=2)
 
-        self.confidence_threshold = tk.DoubleVar(value=10.0)
+        self.confidence_threshold = tk.DoubleVar(value=60.0)
         conf_scale = tk.Scale(conf_frame, from_=0, to=100, resolution=5, orient=tk.HORIZONTAL,
                              variable=self.confidence_threshold, bg=SECONDARY_COLOR,
                              fg=PRIMARY_COLOR, highlightbackground=BG_COLOR, length=120)
@@ -228,11 +226,10 @@ class GloveUI(tk.Tk):
         self.record_window_entry.insert(0, "10")
         self.record_window_entry.pack(pady=2)
         
-        self._record_btn = tk.Button(recording_frame, text="Record & Save",
-                                      bg=PRIMARY_COLOR, fg="white",
-                                      command=self.record_and_save,
-                                      font=("Arial", 9, "bold"))
-        self._record_btn.pack(pady=4)
+        tk.Button(recording_frame, text="Record Gesture", bg=PRIMARY_COLOR, fg="white",
+                 command=self.record_gesture, font=("Arial", 9, "bold")).pack(pady=2)
+        tk.Button(recording_frame, text="Save to CSV", bg=CONFIDENCE_HIGH, fg="white",
+                 command=self.save_gesture, font=("Arial", 9)).pack(pady=2)
         
         # ===== RIGHT COLUMN =====
         right_column = tk.Frame(main_container, bg=BG_COLOR)
@@ -463,7 +460,7 @@ class GloveUI(tk.Tk):
         """Connect to the glove"""
         port = self.port_entry.get()
         try:
-            self.ser = serial.Serial(port, 115200, timeout=0.05)
+            self.ser = serial.Serial(port, 115200, timeout=1)
             time.sleep(2)
             
             # Update UI
@@ -551,158 +548,6 @@ class GloveUI(tk.Tk):
             messagebox.showerror("Error", "Calibration failed - no data received")
 
     # ===== ML Methods =====
-    def train_model(self):
-        """Train KNN model on all gesture CSVs in the selected dataset folder,
-        then auto-load the result. Runs in a background thread with a live
-        log window so the UI stays responsive.
-        """
-        display_name = self.selected_dataset.get()
-        full_path    = getattr(self, "_dataset_paths", {}).get(display_name)
-        if not full_path:
-            messagebox.showerror("Error", "No dataset selected. Choose a folder first.")
-            return
-
-        data_folder = Path(full_path)
-        csv_files   = list(data_folder.glob("gesture_*.csv"))
-        if not csv_files:
-            messagebox.showerror("Error", f"No gesture_*.csv files found in '{display_name}'.")
-            return
-
-        # ── Log window ────────────────────────────────────────────────────────
-        log_win = tk.Toplevel(self)
-        log_win.title("Training Model...")
-        log_win.configure(bg=BG_COLOR)
-        log_win.resizable(True, True)
-
-        tk.Label(log_win, text=f"Training on: {display_name}",
-                 font=("Arial", 10, "bold"), bg=BG_COLOR,
-                 fg=PRIMARY_COLOR).pack(padx=12, pady=(10, 2), anchor="w")
-
-        log_text = tk.Text(log_win, width=70, height=24,
-                           font=("Courier", 9), bg="#1E1E1E", fg="#D4D4D4",
-                           state="disabled", wrap="word")
-        log_text.pack(padx=12, pady=(0, 4), fill="both", expand=True)
-
-        scroll = ttk.Scrollbar(log_win, command=log_text.yview)
-        scroll.pack(side="right", fill="y")
-        log_text.config(yscrollcommand=scroll.set)
-
-        self._train_close_btn = tk.Button(log_win, text="Close",
-                                           bg=BG_COLOR, fg=PRIMARY_COLOR,
-                                           font=("Arial", 9), state="disabled",
-                                           command=log_win.destroy)
-        self._train_close_btn.pack(pady=(0, 10))
-
-        def log(msg):
-            """Append a line to the log window (thread-safe via after)."""
-            def _append():
-                log_text.config(state="normal")
-                log_text.insert("end", msg + "\n")
-                log_text.see("end")
-                log_text.config(state="disabled")
-            self.after(0, _append)
-
-        def run_training():
-            import pandas as pd
-            from sklearn.model_selection import train_test_split, cross_val_score
-            from sklearn.preprocessing import StandardScaler
-            from sklearn.neighbors import KNeighborsClassifier
-            from sklearn.metrics import accuracy_score, classification_report
-
-            try:
-                # ── Load and merge all gesture CSVs ───────────────────────────
-                log(f"Found {len(csv_files)} gesture file(s):")
-                frames = []
-                for f in sorted(csv_files):
-                    try:
-                        df = pd.read_csv(f)
-                        if "label" not in df.columns:
-                            log(f"  SKIP {f.name} — no label column")
-                            continue
-                        log(f"  {f.name}: {len(df)} rows, label={df['label'].iloc[0]}")
-                        frames.append(df)
-                    except Exception as e:
-                        log(f"  SKIP {f.name} — {e}")
-
-                if not frames:
-                    log("\nERROR: No valid CSVs to train on.")
-                    self.after(0, lambda: self._train_close_btn.config(state="normal"))
-                    return
-
-                df_all = pd.concat(frames, ignore_index=True)
-                log(f"\nCombined dataset: {df_all.shape[0]} rows, "
-                    f"{df_all.shape[1]-1} features")
-
-                # Drop all-zero IMU columns (firmware not sending IMU yet)
-                feature_cols = [c for c in df_all.columns if c != "label"]
-                zero_cols = [c for c in feature_cols
-                             if df_all[c].std() == 0 and df_all[c].mean() == 0]
-                if zero_cols:
-                    log(f"Dropping zero-variance IMU columns: {zero_cols}")
-                    df_all = df_all.drop(columns=zero_cols)
-                    feature_cols = [c for c in df_all.columns if c != "label"]
-
-                log(f"Features used: {feature_cols}")
-
-                X = df_all[feature_cols]
-                y = df_all["label"]
-
-                log(f"\nSamples per class:")
-                for cls, cnt in y.value_counts().items():
-                    log(f"  {cls}: {cnt}")
-
-                if y.nunique() < 2:
-                    log("\nERROR: Need at least 2 gesture classes to train.")
-                    self.after(0, lambda: self._train_close_btn.config(state="normal"))
-                    return
-
-                # ── Split + scale ─────────────────────────────────────────────
-                X_train, X_test, y_train, y_test = train_test_split(
-                    X, y, test_size=0.2, random_state=42, stratify=y)
-
-                scaler = StandardScaler()
-                X_train_s = scaler.fit_transform(X_train)
-                X_test_s  = scaler.transform(X_test)
-
-                log(f"\nTrain: {len(X_train)} | Test: {len(X_test)}")
-
-                # ── Train ─────────────────────────────────────────────────────
-                log(f"\nTraining KNN (k={K_NEIGHBORS})...")
-                model = KNeighborsClassifier(
-                    n_neighbors=K_NEIGHBORS,
-                    weights="distance",
-                    metric="euclidean"
-                )
-                model.fit(X_train_s, y_train)
-
-                # ── Evaluate ──────────────────────────────────────────────────
-                y_pred = model.predict(X_test_s)
-                acc    = accuracy_score(y_test, y_pred)
-                log(f"\nTest Accuracy: {acc*100:.1f}%")
-                log("\nClassification Report:")
-                log(classification_report(y_test, y_pred))
-
-                cv = cross_val_score(model, X_train_s, y_train, cv=min(5, y_train.nunique()))
-                log(f"CV Accuracy: {cv.mean()*100:.1f}% (+/- {cv.std()*2*100:.1f}%)")
-
-                # ── Save ──────────────────────────────────────────────────────
-                models_dir = Path(__file__).resolve().parent.parent / "models"
-                models_dir.mkdir(exist_ok=True)
-                joblib.dump(model,  models_dir / "knn_model.joblib")
-                joblib.dump(scaler, models_dir / "scaler.joblib")
-                log(f"\nSaved to {models_dir}")
-                log("=" * 40)
-                log("Training complete! Click 'Load Model' to activate.")
-
-                self.after(0, lambda: self._train_close_btn.config(
-                    text="Close", state="normal", bg=CONFIDENCE_HIGH))
-
-            except Exception as e:
-                log(f"\nERROR: {e}")
-                self.after(0, lambda: self._train_close_btn.config(state="normal"))
-
-        threading.Thread(target=run_training, daemon=True).start()
-
     def load_model(self):
         """Load trained KNN model and scaler"""
         try:
@@ -767,11 +612,11 @@ class GloveUI(tk.Tk):
             if sensor_values:
                 # Count packets for sample rate calculation
                 self.packet_count += 1
-
+                
                 # Pulse the dot (green when receiving data)
                 self.pulse_canvas.itemconfig(self.pulse_dot, fill=CONFIDENCE_HIGH)
                 self.after(50, lambda: self.pulse_canvas.itemconfig(self.pulse_dot, fill="lightgreen"))
-
+                
                 # Update sample rate every second
                 elapsed = time.time() - self.last_rate_update
                 if elapsed >= 1.0:
@@ -779,10 +624,10 @@ class GloveUI(tk.Tk):
                     self.rate_label.config(text=f"{self.current_sample_rate:.1f} Hz")
                     self.packet_count = 0
                     self.last_rate_update = time.time()
-
+                
                 # Show the raw voltage values in the display
                 self.update_sensor_display(sensor_values)
-
+                
                 # Apply calibration for prediction purposes
                 calibrated = self.apply_calibration(sensor_values)
                 self.sensor_buffer.append(calibrated)
@@ -799,9 +644,7 @@ class GloveUI(tk.Tk):
                 if self.demo_mode:
                     self.after(0, self.demo_tick)
 
-            else:
-                # No packet received — yield briefly to avoid busy-spinning
-                time.sleep(0.01)
+            time.sleep(0.05)
 
     def get_stable_prediction(self, prediction):
         self.prediction_history.append(prediction)
@@ -850,9 +693,7 @@ class GloveUI(tk.Tk):
             n = self.scaler.n_features_in_
             sensor_values = list(sensor_values)[:n]
 
-            # Use a named DataFrame so sklearn doesn't warn about feature names
-            import pandas as pd
-            X = pd.DataFrame([sensor_values], columns=self.scaler.feature_names_in_)
+            X = np.array(sensor_values).reshape(1, -1)
             X_scaled = self.scaler.transform(X)
             
             # Get prediction with probabilities
@@ -1241,20 +1082,17 @@ class GloveUI(tk.Tk):
             "Restart data_logger.py to pick up the change there.")
 
     # ===== Recording Methods =====
-    def record_and_save(self):
-        """Record gesture data and automatically save to CSV when done.
-        Runs in a background thread so the UI stays responsive.
-        Button shows a live countdown while recording.
-        """
+    def record_gesture(self):
+        """Record gesture data for training"""
         if not self.ser:
             messagebox.showwarning("Warning", "Connect glove first!")
             return
-
-        label = self.gesture_label_entry.get().upper()
+        
+        label = self.gesture_label_entry.get()
         if not label:
             messagebox.showwarning("Warning", "Enter a gesture label!")
             return
-
+        
         try:
             duration = float(self.record_window_entry.get())
             if duration <= 0:
@@ -1262,65 +1100,77 @@ class GloveUI(tk.Tk):
         except ValueError:
             messagebox.showwarning("Warning", "Enter a valid recording duration (seconds).")
             return
+        messagebox.showinfo("Recording", f"Recording '{label}' for {duration} seconds...\n\nPress OK to start!")
+        
+        self.recorded_data = []
+        start_time = time.time()
+        
+        while time.time() - start_time < duration:
+            sensor_values = self.read_sensor_packet()
 
-        # Validate save destination before starting
-        display_name  = self.selected_dataset.get()
-        full_path     = self._dataset_paths.get(display_name)
+            if sensor_values:
+                calibrated = self.apply_calibration(sensor_values)
+                # Store all 11 values (flex + IMU) for CSV
+                self.recorded_data.append(calibrated + [label])
+
+            time.sleep(0.05)
+ 
+        messagebox.showinfo("Complete", f"Recorded {len(self.recorded_data)} samples for '{label}'")
+    
+    def save_gesture(self):
+        """Save recorded gesture to CSV.
+        Appends to an existing gesture_LABEL.csv in the selected dataset folder,
+        or creates it with a header if it doesn't exist yet.
+        """
+        if not self.recorded_data:
+            messagebox.showwarning("Warning", "No data to save! Record first.")
+            return
+
+        if not self.calibration_done:
+            if not messagebox.askyesno("Warning",
+                    "Calibration has not been run this session.\n"
+                    "Data will be saved as raw voltages, not normalized 0-100.\n\n"
+                    "Save anyway?"):
+                return
+
+        import csv
+
+        label        = self.gesture_label_entry.get().upper()
+
+        # Look up full path from display name
+        display_name   = self.selected_dataset.get()
+        full_path      = self._dataset_paths.get(display_name)
         if not full_path:
             messagebox.showerror("Error", f"Dataset '{display_name}' not found. Try refreshing.")
             return
-
         dataset_folder = Path(full_path)
         dataset_folder.mkdir(parents=True, exist_ok=True)
+
         filename   = dataset_folder / f"gesture_{label}.csv"
+        file_exists = filename.exists()
 
-        self._record_btn.config(state="disabled", text="Recording...")
+        # Header matches active sensor fields from config
+        sensor_fields = sc.get_active_sensor_fields()
+        HEADER = sensor_fields + ["label"]
+
+        print(f"[save_gesture] saving to: {filename}")
+
+        try:
+            with open(filename, 'a', newline='') as f:
+                writer = csv.writer(f)
+                if not file_exists:
+                    writer.writerow(HEADER)
+                writer.writerows(self.recorded_data)
+
+            new_rows = len(self.recorded_data)
+            messagebox.showinfo("Saved",
+                f"Saved {new_rows} samples for '{label}'\n\nFile: {filename}")
+            self.recorded_data = []
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save: {str(e)}")
+
+    def discard_gesture(self):
         self.recorded_data = []
-
-        def _do_record_and_save():
-            import csv
-
-            # ── Record ────────────────────────────────────────────────────────
-            start_time = time.time()
-            while time.time() - start_time < duration:
-                remaining = duration - (time.time() - start_time)
-                self.after(0, lambda r=remaining: self._record_btn.config(
-                    text=f"Recording... {r:.1f}s"))
-                sensor_values = self.read_sensor_packet()
-                if sensor_values:
-                    calibrated = self.apply_calibration(sensor_values)
-                    self.recorded_data.append(calibrated + [label])
-
-            # ── Save ──────────────────────────────────────────────────────────
-            self.after(0, lambda: self._record_btn.config(text="Saving..."))
-
-            sensor_fields = sc.get_active_sensor_fields()
-            HEADER = sensor_fields + ["label"]
-            file_exists = filename.exists()
-
-            try:
-                with open(filename, "a", newline="") as f:
-                    writer = csv.writer(f)
-                    if not file_exists:
-                        writer.writerow(HEADER)
-                    writer.writerows(self.recorded_data)
-
-                count = len(self.recorded_data)
-                self.recorded_data = []
-                print(f"[record_and_save] {count} samples saved to {filename}")
-
-                self.after(0, lambda: self._record_btn.config(
-                    state="normal", text="Record & Save"))
-                self.after(0, lambda: messagebox.showinfo(
-                    "Saved", f"Saved {count} samples for '{label}'\n\n{filename}"))
-
-            except Exception as e:
-                self.after(0, lambda: self._record_btn.config(
-                    state="normal", text="Record & Save"))
-                self.after(0, lambda: messagebox.showerror(
-                    "Error", f"Failed to save: {str(e)}"))
-
-        threading.Thread(target=_do_record_and_save, daemon=True).start()
 
 if __name__ == "__main__":
     app = GloveUI()

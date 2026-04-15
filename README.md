@@ -60,3 +60,34 @@ Data collection
 20 second window, 3 times a letter -> ~1000 samples per
 Just a few letters/gestures: A, B, C, L, O, W, Y, 5
 
+pause recognition freezes ui
+MAKE IT AUTOSAVE CSVs
+show other confidence scores besides 100
+
+External Data Gestures:
+bad
+deaf - maybe try
+fine
+good
+goodbye
+hello
+hungry
+me - maybe try
+please - maybe try
+sorry
+thank you
+yes
+you - maybe try
+
+
+F
+W
+I
+Y
+B
+L
+K
+You
+Me
+Please
+C or O

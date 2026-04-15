@@ -1,7 +1,7 @@
 # FLEX-GLOVE-ML — Project Context
 
 **Team 7 Senior Design — University of Pittsburgh, Swanson School of Engineering**
-Author: Philip Sherman
+Author: Philip Sherman, Brennan Aldrich, Ryan Ali
 
 ---
 
@@ -19,26 +19,26 @@ A data glove system that reads flex sensor and IMU data from a hardware glove ov
 
 ### Serial Packet Format
 
-The packet format is now **configurable** via `sensor_config.json` (see Sensor Config section). The default is flex-only (5 values per packet). The full format when all fields are enabled is:
+The packet format is **configurable** via `sensor_config.json` (see Sensor Config section). The default is flex-only (5 values per packet). The full format when all fields are enabled is:
 
 ```
 timestamp,flex1,flex2,flex3,flex4,flex5,accel_x,accel_y,accel_z,gyro_x,gyro_y,gyro_z
 ```
 
 - `timestamp` — milliseconds since boot (stored separately, not used in ML)
-- `flex1–5` — raw ADC voltage readings, calibrated to 0–100 before use
+- `flex1-5` — raw ADC voltage readings, calibrated to 0-100 before use
 - `accel_x/y/z` — raw accelerometer counts
 - `gyro_x/y/z` — raw gyroscope counts
 
-**Current firmware status:** Only sends 5 flex values. The packet format is set to flex-only in `sensor_config.json` to match. When the firmware is updated to send IMU data, enable those fields in the ⚙ settings window.
+**Current firmware status:** Only sends 5 flex values. The packet format is set to flex-only in `sensor_config.json` to match. When the firmware is updated to send IMU data, enable those fields in the gear settings window.
 
 ### Calibration
 
 Before recording data or running inference, the user runs a calibration:
-1. Open hand fully for 3 seconds → captures `sensor_min`
-2. Close hand into a fist for 3 seconds → captures `sensor_max`
+1. Open hand fully for 3 seconds captures sensor_min
+2. Close hand into a fist for 3 seconds captures sensor_max
 
-Calibration maps raw voltages to 0–100 for flex sensors only. IMU values are passed through unchanged. `calibration_done` flag is set after a successful calibration — the UI warns if you try to save data without calibrating.
+Calibration maps raw voltages to 0-100 for flex sensors only. IMU values are passed through unchanged. calibration_done flag is set after a successful calibration — the UI warns before saving if calibration has not been run.
 
 ---
 
@@ -50,26 +50,24 @@ FLEX-GLOVE-ML/
 │   └── main.py                       # Tkinter UI — main application
 ├── assets/
 │   └── pitt_logo.png                 # University of Pittsburgh logo
-├── config/
-│   (sensor_config.json lives at project root, not here)
 ├── data/
 │   ├── raw/                          # Team-recorded gesture CSVs
 │   ├── processed/                    # Merged/cleaned data for training
 │   └── external/                     # Imported external dataset
 ├── hardware/
-│   ├── data_logger.py                # Standalone serial recording script
+│   ├── data_logger.py                # Standalone terminal recording script (independent of UI)
 │   ├── BLE_scanner.py                # Bluetooth scanner utility
 │   └── find_UUID.py                  # BLE UUID finder
 ├── ml/
-│   ├── train_model.py                # KNN training script
+│   ├── train_model.py                # Standalone KNN training script (also callable from UI)
 │   ├── gen_dummy_data.py             # Generates fake gesture data for testing
-│   └── import_external_gestures.py  # Imports + normalizes external dataset
+│   └── import_external_gestures.py  # Imports and normalizes external dataset
 ├── models/
 │   ├── knn_model.joblib              # Trained KNN model
 │   └── scaler.joblib                 # StandardScaler fitted on training data
 ├── notebooks/                        # Jupyter notebooks for experimentation
 ├── ASL-Sensor-Dataglove-Dataset/
-│   └── 001/ … 025/                   # External dataset: 25 subjects, single-letter CSVs
+│   └── 001 to 025/                   # External dataset: 25 subjects, single-letter CSVs
 ├── sensor_config.py                  # Shared packet format utility (project root)
 ├── sensor_config.json                # Active packet format config (project root)
 ├── .gitignore
@@ -82,7 +80,7 @@ FLEX-GLOVE-ML/
 
 The packet format is controlled by two files at the project root:
 
-### `sensor_config.json`
+### sensor_config.json
 ```json
 {
     "fields": {
@@ -102,21 +100,21 @@ The packet format is controlled by two files at the project root:
 }
 ```
 
-### `sensor_config.py`
-Shared utility module imported by both `main.py` and `data_logger.py`. Key functions:
-- `load_config()` — reads JSON, returns field dict
-- `save_config(fields)` — writes back to JSON
-- `get_active_fields()` — ordered list of enabled field names
-- `get_active_sensor_fields()` — same but excludes timestamp
-- `get_expected_len()` — total values expected per serial packet
-- `get_csv_header()` — column names for CSV output
-- `parse_packet(line)` — parses one raw serial line, returns dict or None
-- `validate_packet(parsed)` — range-checks all values, returns (bool, warnings)
+### sensor_config.py
+Shared utility module imported by both main.py and data_logger.py. Key functions:
+- load_config() — reads JSON, returns field dict
+- save_config(fields) — writes back to JSON
+- get_active_fields() — ordered list of enabled field names
+- get_active_sensor_fields() — same but excludes timestamp
+- get_expected_len() — total values expected per serial packet
+- get_csv_header() — column names for CSV output
+- parse_packet(line) — parses one raw serial line, returns dict or None
+- validate_packet(parsed) — range-checks all values, returns (bool, warnings)
 
-Both scripts call `sc.parse_packet()` for all serial reading — no hardcoded field positions anywhere. The UI reads the config fresh on every packet so changes take effect immediately after saving in the settings window. `data_logger.py` reads config on startup so requires a restart to pick up changes.
+Both scripts call sc.parse_packet() for all serial reading — no hardcoded field positions anywhere. The UI reads the config fresh on every packet so changes take effect immediately. data_logger.py reads config on startup so requires a restart to pick up changes.
 
 ### Changing the format
-Open the ⚙ gear button (next to Calibrate in the Connection frame) to open the settings window. Toggle fields on/off and hit Save. A canvas diagram shows the current packet layout in real time as you toggle. The UI updates immediately; restart `data_logger.py` to apply there.
+Open the gear button (next to Calibrate in the Connection frame) to open the settings window. Toggle fields on/off and hit Save. A canvas diagram shows the current packet layout in real time as you toggle. The UI updates immediately; restart data_logger.py to apply there.
 
 ---
 
@@ -124,27 +122,27 @@ Open the ⚙ gear button (next to Calibrate in the Connection frame) to open the
 
 ### Internal (team-collected) CSV schema
 
-Saved by the UI to `data/{selected_folder}/gesture_{LETTER}.csv`. Columns match whatever sensor fields are active in `sensor_config.json` at the time of recording, plus a `label` column:
+Saved by the UI to data/{selected_folder}/gesture_{LETTER}.csv. Columns match whatever sensor fields are active in sensor_config.json at the time of recording, plus a label column:
 
 ```
 flex_1, flex_2, flex_3, flex_4, flex_5, [accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z,] label
 ```
 
-- Flex values are **calibrated 0–100** (not raw voltages)
-- Label is a single uppercase letter (A–Z)
-- Multiple recording sessions for the same letter **append** to the same file — no duplicate files
-- Recording duration is set via a text entry box (no upper limit — can record for 30s, 60s, etc.)
+- Flex values are calibrated 0-100 (not raw voltages) if calibration was run before recording
+- Label is a single uppercase letter (A-Z)
+- Multiple recording sessions for the same letter append to the same file — no duplicate files
+- Recording duration is a free-entry text box (default 10s, no upper limit)
 
 ### External dataset schema (ASL-Sensor-Dataglove-Dataset)
 
 ```
-timestamp, user_id, flex_1–5, Qw, Qx, Qy, Qz, GYRx–z, ACCx–z, ACCx_body–z, ACCx_world–z
+timestamp, user_id, flex_1-5, Qw, Qx, Qy, Qz, GYRx-z, ACCx-z, ACCx_body-z, ACCx_world-z
 ```
 
-- Flex values are already on a 0–100 scale (pre-normalized by the researchers)
-- Contains quaternion orientation + three ACC frames — much richer IMU than the team glove
-- `import_external_gestures.py` extracts only: `flex_1–5`, `ACCx/y/z`, `GYRx/y/z` to match internal schema
-- Files named with a single letter (e.g. `a.csv`) are treated as gesture labels
+- Flex values are already on a 0-100 scale (pre-normalized by the researchers)
+- Contains quaternion orientation and three ACC frames
+- import_external_gestures.py extracts only: flex_1-5, ACCx/y/z, GYRx/y/z to match internal schema
+- Files named with a single letter (e.g. a.csv) are treated as gesture labels
 
 ---
 
@@ -153,53 +151,69 @@ timestamp, user_id, flex_1–5, Qw, Qx, Qy, Qz, GYRx–z, ACCx–z, ACCx_body–
 ### Model
 
 **K-Nearest Neighbors (KNN)**
-- `k = 5`, `weights = 'distance'`, `metric = 'euclidean'`
-- Input: however many sensor features are active in `sensor_config.json` (currently 5 — flex only)
-- Output: predicted ASL letter (A–Z)
-- Scaler: `StandardScaler` fitted on training data, saved separately
-- At inference time, `predict_gesture()` auto-trims input to `scaler.n_features_in_` so the model works regardless of how many fields are active
+- k = 5, weights = distance, metric = euclidean
+- Input: however many sensor features are active in sensor_config.json (currently 5 — flex only)
+- Output: predicted ASL letter (A-Z)
+- Scaler: StandardScaler fitted on training data, saved separately
+- At inference time, predict_gesture() auto-trims input to scaler.n_features_in_ and wraps in a named DataFrame to match the scaler's expected feature names — eliminates sklearn warnings
 
-### Constants (hardcoded — change both together if retraining)
+### Constants (hardcoded in app/main.py)
 
 ```python
-K_NEIGHBORS = 5       # in app/main.py and ml/train_model.py
-SMOOTHING_WINDOW = 3  # ~150ms at 16Hz — balances noise vs. latency for live ASL
+K_NEIGHBORS      = 5    # also used by the in-UI trainer
+SMOOTHING_WINDOW = 1    # set to 1 for minimum latency (no rolling average)
+stability_threshold = 2  # letter must appear in 2 of last 5 frames to be shown
 ```
 
-### Training
+### Training — two ways
 
+**From the UI (recommended):** Click Train Model in Recognition Control. Reads all gesture_*.csv files from the selected dataset folder, trains, and saves .joblib files. Shows a live log window with accuracy, classification report, and CV scores. Automatically drops all-zero IMU columns so it works cleanly with flex-only data.
+
+**From the terminal:**
 ```bash
 python ml/train_model.py --data data/raw/gesture_A.csv
-# or for external data:
-python ml/train_model.py --data data/external/gesture_A.csv
 ```
+Saves model to models/knn_model.joblib and scaler to models/scaler.joblib.
 
-Saves model to `models/knn_model.joblib` and scaler to `models/scaler.joblib`.
+**Important:** Training overwrites existing .joblib files. There is no automatic versioning — copy the files manually before retraining if you want to keep an old model.
 
 ### Inference (in UI)
 
 1. Raw serial packet received
-2. Parsed via `sc.parse_packet()` — fields determined by `sensor_config.json`
+2. Parsed via sc.parse_packet() — fields determined by sensor_config.json
 3. Timestamp stored separately if present, not passed to ML
-4. Flex values calibrated (0–100)
-5. Rolling buffer of last `SMOOTHING_WINDOW` frames averaged
-6. Input trimmed to `scaler.n_features_in_` features
-7. `scaler.transform()` applied
-8. `model.predict()` called
-9. Stability filter: prediction only shown if same letter appears ≥ 3 times in last 5 frames
-10. `predict_proba()` used to get top 5 confidence scores
+4. Flex values calibrated (0-100)
+5. Rolling buffer of last SMOOTHING_WINDOW frames averaged (currently 1 = no averaging)
+6. Input trimmed to scaler.n_features_in_ features, wrapped in named DataFrame
+7. scaler.transform() applied
+8. model.predict() called
+9. Stability filter: prediction shown if same letter appears 2+ times in last 5 frames
+10. predict_proba() used to get top 5 confidence scores
+
+### Approximate latency breakdown
+
+| Source | Time |
+|--------|------|
+| Firmware + transmission | ~10ms |
+| Waiting for next packet (16Hz) | ~31ms avg |
+| Smoothing (1 frame) | ~0ms |
+| Stability filter (avg case) | ~62ms |
+| UI update | ~15ms |
+| **Total** | **~120ms** |
+
+To reduce further: increase firmware sample rate above 16Hz, or reduce stability threshold to 1 (more flicker).
 
 ---
 
-## UI (`app/main.py`)
+## UI (app/main.py)
 
-Built with **Tkinter**. Window size: ~925×700px.
+Built with Tkinter. Window size: ~925x700px.
 
 ### Left column (controls)
-- **Connection** — COM port entry, Connect/Disconnect toggle, Calibrate, ⚙ sensor settings
-- **Recognition Control** — dataset dropdown (scans `data/` subfolders for CSVs), ↻ refresh, Load Model, Start/Stop Recognition, ▶ Demo Mode (enabled only after model is loaded)
-- **Confidence Threshold** — slider (0–100%, default 60%). Predictions below threshold show "?" instead of a letter
-- **Data Collection** — gesture label entry, recording duration text box (no upper limit, default 10s), Record Gesture, Save to CSV
+- **Connection** — COM port entry, Connect/Disconnect toggle, Calibrate, gear sensor settings
+- **Recognition Control** — dataset dropdown (shows short folder name: raw, processed, external), refresh button, Train Model, Load Model, Pause Recognition, Demo Mode (enabled only after model is loaded)
+- **Confidence Threshold** — slider (0-100%, default 60%). Predictions below threshold show ? instead of a letter
+- **Data Collection** — gesture label entry, recording duration text box (default 10s), Record and Save button
 
 ### Right column (display)
 - **Top 5 Predictions** — letter label, progress bar, confidence % for each of top 5
@@ -209,25 +223,55 @@ Built with **Tkinter**. Window size: ~925×700px.
 
 ### Key behaviors
 - Connecting to the glove automatically starts the recognition/display loop
-- The dataset dropdown controls where **both** recorded CSVs are saved and which folder is shown as context when loading the model
-- Saving a gesture appends to `gesture_{LABEL}.csv` in the selected dataset folder — no overwriting, no duplicate files
-- The pulsing dot in the top-left turns green when packets are being received and shows live Hz rate
-- Sensor settings (⚙) open a Toplevel window — changes take effect immediately in the UI without reconnecting
+- Loading a model also enables the Demo Mode button
+- The dataset dropdown shows only the short folder name (raw, processed, external) — full path stored internally in self._dataset_paths
+- **Record and Save** — records and saves in one step. Button shows live countdown while recording, then briefly shows Saving... before re-enabling. No separate Save step needed.
+- Training and recording both run in background threads — UI stays responsive throughout
+- **Pause Recognition** — sets is_recognizing to False, recognition thread dies naturally (non-blocking)
+- The pulsing dot in the top-left turns green when packets are received and shows live Hz rate
+- Sensor settings open a Toplevel window — changes take effect immediately in the UI
+
+### Workflow for data collection and training
+
+1. Connect glove
+2. (Optional) Calibrate — recommended for consistent data
+3. Select dataset folder in dropdown (e.g. raw)
+4. Enter gesture label (e.g. L)
+5. Set duration (e.g. 20)
+6. Hit Record and Save — records and saves automatically
+7. Repeat steps 4-6 for each gesture
+8. Hit Train Model — trains on all gesture_*.csv files in selected folder
+9. Hit Load Model — activates the new model
+10. Recognition is now live
+
+### data_logger.py vs UI data collection
+
+These are two completely independent ways to collect data. The UI is recommended for all active development. data_logger.py has no connection to main.py.
+
+| | UI | data_logger.py |
+|---|---|---|
+| Output folder | Selected in dropdown | --out argument (default data/raw) |
+| Duration | Text entry box | Ctrl+C or --seconds N |
+| Calibration applied | Yes (if run) | No — raw voltages only |
+| Smoothing | SMOOTHING_WINDOW frames | 5-frame rolling average |
+| Appends to existing | Yes | Yes |
+
+Do not mix UI-collected (calibrated) and data_logger-collected (uncalibrated) data in the same training folder — the feature distributions will be inconsistent.
 
 ---
 
 ## Demo Mode
 
-Accessed via the **▶ Demo Mode** button in Recognition Control (only enabled after a model is loaded).
+Accessed via the Demo Mode button in Recognition Control (only enabled after a model is loaded).
 
 ### Flow
 The user signs ASL letters freely. Each letter is confirmed by holding it steadily for 1.5 seconds. The word builds up in a large text display visible to an audience.
 
 ### State machine
 ```
-WATCHING → HOLDING → CONFIRMED → COOLDOWN → WATCHING (loop)
-              ↓ (confidence drops or letter changes)
-           WATCHING (reset)
+WATCHING -> HOLDING -> COOLDOWN -> WATCHING (loop)
+               (confidence drops or letter changes)
+            WATCHING (reset)
 ```
 
 ### Timing constants
@@ -239,15 +283,15 @@ DEMO_MIN_CONFIDENCE = 60.0  # minimum confidence % to start hold timer
 ```
 
 ### Controls
-- **⌫ Backspace** — remove last confirmed letter
-- **✕ Clear Word** — wipe entire word and restart
-- **■ Exit Demo** — return to normal mode (word is cleared on exit)
+- Backspace — remove last confirmed letter
+- Clear Word — wipe entire word and restart
+- Exit Demo — return to normal mode (word is cleared on exit)
 
 ---
 
 ## Gestures Being Classified
 
-The project is collecting and classifying **ASL fingerspelled letters**:
+The project is collecting and classifying ASL fingerspelled letters:
 
 | Checkoff | Letters |
 |----------|---------|
@@ -256,27 +300,43 @@ The project is collecting and classifying **ASL fingerspelled letters**:
 | Third    | J, M, N, P, S, T, U, V, X, Z |
 | Final    | R, K, Q, G, H |
 
+**Recommended starting set for demo:** A, B, C, L, O, W, Y, 5 — these have maximally distinct flex patterns and are easy to hold statically.
+
+**Note:** J and Z are motion-based letters (not static poses) — KNN cannot classify them reliably.
+
 ---
 
 ## External Dataset
 
-**ASL-Sensor-Dataglove-Dataset** — 25 subjects (folders `001`–`025`), each containing single-letter CSV files. Files named with a single letter (e.g. `a.csv`, `b.csv`) correspond to that ASL letter.
+**ASL-Sensor-Dataglove-Dataset** — 25 subjects (folders 001-025), each containing single-letter CSV files. Files named with a single letter (e.g. a.csv, b.csv) correspond to that ASL letter.
 
-Import script: `ml/import_external_gestures.py`
-- Set `EXTERNAL_ROOT = "ASL-Sensor-Dataglove-Dataset"` and `OUTPUT_DIR = "data/external"`
-- Combines all 25 subjects' data for each letter into one `gesture_{LETTER}.csv`
+Import script: ml/import_external_gestures.py
+- Set EXTERNAL_ROOT = "ASL-Sensor-Dataglove-Dataset" and OUTPUT_DIR = "data/external"
+- Combines all 25 subjects data for each letter into one gesture_{LETTER}.csv
 - Drops: timestamp, user_id, quaternions, body-frame and world-frame ACC
-- Keeps and renames: flex_1–5, ACCx→accel_x, ACCy→accel_y, ACCz→accel_z, GYRx→gyro_x, GYRy→gyro_y, GYRz→gyro_z
+- Keeps and renames: flex_1-5, ACCx to accel_x, ACCy to accel_y, ACCz to accel_z, GYRx to gyro_x, GYRy to gyro_y, GYRz to gyro_z
+- External flex values are already 0-100 scale — compatible with calibrated team data
+
+---
+
+## Data Collection Recommendations
+
+- **Target:** 500-800 samples per gesture (~30-50 seconds at 16Hz)
+- **Sessions:** 3-4 separate sessions per letter (~15-20s each), spread across different times — captures natural hand variation
+- **Between sessions:** fully relax hand, shake it out, reform sign before recording
+- **One signer for demo:** train on one person's data only — KNN is highly personalized and will perform best this way
+- **Confidence scores:** with few classes, KNN tends to show 100% or 0% rather than fractional values. This is expected behavior, not a bug. Increasing k or adding more gesture classes will produce more spread-out confidence scores.
 
 ---
 
 ## Known Issues / TODO
 
-- [ ] Firmware not yet sending full packet with IMU — currently flex-only; enable IMU fields in ⚙ settings once firmware is updated
-- [ ] Bluetooth connection not yet implemented (`data_logger.py` has a TODO for this)
-- [ ] `data_logger.py` does not use the UI-selected dataset folder — output path is still hardcoded at the top of the script
+- [ ] Firmware not yet sending full packet with IMU — currently flex-only; enable IMU fields in gear settings once firmware is updated
+- [ ] Bluetooth connection not yet implemented (data_logger.py has a TODO for this)
+- [ ] data_logger.py does not apply calibration — saves raw voltages only; do not mix with UI-collected calibrated data
 - [ ] IMU values from external dataset are in different units than team glove — may need normalization before mixing datasets
-- [ ] J and Z are motion-based ASL letters (not static poses) — KNN may not classify them reliably
+- [ ] Training overwrites existing .joblib files with no versioning — copy files manually before retraining if rollback is needed
+- [ ] J and Z are motion-based ASL letters — KNN cannot classify them reliably
 
 ---
 
@@ -292,7 +352,7 @@ tkinter (stdlib)
 Pillow
 ```
 
-Run from the project root (`flex-glove-ml/`) with the venv activated:
+Run from the project root (flex-glove-ml/) with the venv activated:
 
 ```bash
 python app/main.py

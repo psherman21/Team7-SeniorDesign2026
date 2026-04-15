@@ -12,11 +12,22 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 import sensor_config as sc
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-SERIAL_PORT    = "COM5"   # Adjust when needed
+import argparse
+
+parser = argparse.ArgumentParser(description="Team 7 Gesture Data Logger")
+parser.add_argument("--port",    default="COM6",    help="Serial port (e.g. COM6)")
+parser.add_argument("--label",   default="A",       help="Gesture label to record (e.g. B, L)")
+parser.add_argument("--out",     default="data/raw",help="Output folder (e.g. data/raw or data/processed)")
+parser.add_argument("--seconds", default=0, type=float,
+                    help="Stop automatically after N seconds (0 = run until Ctrl+C)")
+args = parser.parse_args()
+
+SERIAL_PORT    = args.port
 BAUD_RATE      = 115200
-GESTURE_LABEL  = "A"      # Change with every recording
-OUTPUT_DIR     = "data/raw"
-OUTPUT_FILE    = f"data/raw/gesture_{GESTURE_LABEL}.csv"
+GESTURE_LABEL  = args.label.upper()
+OUTPUT_DIR     = args.out
+OUTPUT_FILE    = os.path.join(OUTPUT_DIR, f"gesture_{GESTURE_LABEL}.csv")
+RECORD_SECONDS = args.seconds   # 0 means run until Ctrl+C
 
 """
 First Checkoff:  1, 2, 3, OK, W
@@ -80,6 +91,11 @@ with open(OUTPUT_FILE, mode="a", newline="") as file:
 
     try:
         while True:
+            # Auto-stop if --seconds was specified
+            if RECORD_SECONDS > 0 and (time.time() - start_time) >= RECORD_SECONDS:
+                print(f"\nReached {RECORD_SECONDS}s limit — stopping.")
+                break
+
             if ser.in_waiting > 0:
                 try:
                     line = ser.readline().decode("utf-8").strip()
