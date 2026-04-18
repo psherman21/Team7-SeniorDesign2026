@@ -64,6 +64,9 @@ pause recognition freezes ui
 MAKE IT AUTOSAVE CSVs
 show other confidence scores besides 100
 
+4/15/26:
+Add more gesture stability filtering - stable letter guessing
+
 External Data Gestures:
 bad
 deaf - maybe try
@@ -91,3 +94,5 @@ You
 Me
 Please
 C or O
+
+

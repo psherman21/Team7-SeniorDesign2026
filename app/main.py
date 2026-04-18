@@ -43,6 +43,7 @@ class GloveUI(tk.Tk):
 
         # Serial/ML variables
         self.ser = None
+        self._serial_lock = threading.Lock()  # prevents two threads reading serial simultaneously
         self.model = None
         self.scaler = None
         self.is_recognizing = False
@@ -57,9 +58,12 @@ class GloveUI(tk.Tk):
         self.last_timestamp = None
 
         # Gesture stability filtering
-        self.prediction_history = deque(maxlen=5)
-        self.stable_gesture = None
-        self.stability_threshold = 2
+        self.prediction_history  = deque(maxlen=10)  # wider window for majority vote
+        self.stable_gesture      = None
+        self.stability_threshold = 7     # letter must appear in 7 of last 10 frames
+        self.last_raw_prediction = None  # tracks consecutive streak
+        self.streak_count        = 0     # how many frames in a row same letter
+        self.STREAK_REQUIRED     = 4     # consecutive frames before display updates
 
         # Calibration values
         self.sensor_min = [0, 0, 0, 0, 0]
@@ -67,7 +71,7 @@ class GloveUI(tk.Tk):
         self.calibration_done = False
 
         # Dataset selection
-        self.selected_dataset = tk.StringVar(value="raw")
+        self.selected_dataset = tk.StringVar(value="Ryan")
 
         # Demo mode state
         self.demo_mode        = False
@@ -428,24 +432,29 @@ class GloveUI(tk.Tk):
     # ===== Connection Methods =====
     def read_sensor_packet(self):
         """Read one serial packet and return sensor values as a list of floats.
-
-        Uses sensor_config.parse_packet() so the expected format always matches
-        whatever is set in sensor_config.json.  Timestamp (if active) is stored
-        in self.last_timestamp but not returned.  Returns None on failure.
+        Thread-safe — uses _serial_lock so recording and recognition threads
+        cannot both read the port simultaneously.
+        Returns None on failure or if port is unavailable.
         """
-        if not self.ser:
+        if not self.ser or not self.ser.is_open:
             return None
         try:
-            line = self.ser.readline().decode("utf-8").strip()
+            with self._serial_lock:
+                line = self.ser.readline().decode("utf-8").strip()
+            if not line:
+                return None
             parsed = sc.parse_packet(line)
             if parsed is None:
                 return None
-            # Store timestamp if present
             if "__timestamp__" in parsed:
                 self.last_timestamp = parsed["__timestamp__"]
-            # Return sensor values in field order
             sensor_fields = sc.get_active_sensor_fields()
             return [parsed[f] for f in sensor_fields if f in parsed]
+        except serial.SerialException as e:
+            # Port dropped (power loss, USB disconnect) — stop recognition cleanly
+            print(f"Serial disconnected: {e}")
+            self.after(0, self._handle_serial_disconnect)
+            return None
         except Exception as e:
             print(f"Read error: {e}")
             return None
@@ -480,25 +489,41 @@ class GloveUI(tk.Tk):
             messagebox.showerror("Error", f"Failed to connect: {str(e)}")
 
     def disconnect_glove(self):
-        """Disconnect from the glove"""
-        # Stop recognition loop
+        """Disconnect from the glove — non-blocking, safe to call from any thread."""
         self.is_recognizing = False
-        time.sleep(0.1)  # Give thread time to stop
-        
-        # Close serial port
-        if self.ser and self.ser.is_open:
-            self.ser.close()
-        
-        # Update UI
+        try:
+            if self.ser and self.ser.is_open:
+                self.ser.close()
+        except Exception:
+            pass
+        self.ser = None
+        self._update_disconnected_ui()
+
+    def _handle_serial_disconnect(self):
+        """Called on main thread when serial port drops unexpectedly (power loss etc.)."""
+        if not self.is_recognizing:
+            return  # already disconnected
+        print("Serial port lost — cleaning up.")
+        self.is_recognizing = False
+        try:
+            if self.ser and self.ser.is_open:
+                self.ser.close()
+        except Exception:
+            pass
+        self.ser = None
+        self._update_disconnected_ui()
+        messagebox.showwarning("Connection Lost",
+            "The glove disconnected unexpectedly.\n\nCheck the USB connection and reconnect.")
+
+    def _update_disconnected_ui(self):
+        """Reset all UI elements to disconnected state. Must run on main thread."""
         self.status_label.config(text="Status: Disconnected", fg="red")
         self.connect_button.config(text="Connect", bg=PRIMARY_COLOR)
         self.rate_label.config(text="-- Hz")
         self.pulse_canvas.itemconfig(self.pulse_dot, fill="gray")
-        
-        # Reset sensor displays
         for value_lbl, bar in self.sensor_labels:
             value_lbl.config(text="0.00 V")
-            bar['value'] = 0
+            bar["value"] = 0
         for lbl in self.imu_labels.values():
             lbl.config(text="--")
     
@@ -753,57 +778,72 @@ class GloveUI(tk.Tk):
         threading.Thread(target=self.recognition_loop, daemon=True).start()
     
     def stop_recognition(self):
-        """Stop gesture recognition"""
+        """Stop gesture recognition — safe to call from any thread."""
         self.is_recognizing = False
+        self.after(100, self._reset_recognition_display)
+
+    def _reset_recognition_display(self):
         self.gesture_display.config(text="--")
         self.gesture_name_label.config(text="Recognition stopped")
         self.confidence_label.config(text="0%")
-        self.confidence_bar['value'] = 0
+        self.confidence_bar["value"] = 0
     
     def recognition_loop(self):
         while self.is_recognizing:
             sensor_values = self.read_sensor_packet()
 
             if sensor_values:
-                # Count packets for sample rate calculation
                 self.packet_count += 1
 
-                # Pulse the dot (green when receiving data)
-                self.pulse_canvas.itemconfig(self.pulse_dot, fill=CONFIDENCE_HIGH)
-                self.after(50, lambda: self.pulse_canvas.itemconfig(self.pulse_dot, fill="lightgreen"))
+                # All UI updates go through self.after() — never touch widgets directly
+                # from a background thread
+                self.after(0, lambda: self.pulse_canvas.itemconfig(
+                    self.pulse_dot, fill=CONFIDENCE_HIGH))
+                self.after(60, lambda: self.pulse_canvas.itemconfig(
+                    self.pulse_dot, fill="lightgreen"))
 
-                # Update sample rate every second
-                elapsed = time.time() - self.last_rate_update
+                # Sample rate — compute here, update UI via after()
+                now = time.time()
+                elapsed = now - self.last_rate_update
                 if elapsed >= 1.0:
-                    self.current_sample_rate = self.packet_count / elapsed
-                    self.rate_label.config(text=f"{self.current_sample_rate:.1f} Hz")
+                    rate = self.packet_count / elapsed
+                    self.after(0, lambda r=rate: self.rate_label.config(
+                        text=f"{r:.1f} Hz"))
                     self.packet_count = 0
-                    self.last_rate_update = time.time()
+                    self.last_rate_update = now
 
-                # Show the raw voltage values in the display
-                self.update_sensor_display(sensor_values)
+                # Sensor display — schedule on main thread
+                self.after(0, lambda v=sensor_values: self.update_sensor_display(v))
 
-                # Apply calibration for prediction purposes
+                # Calibration + buffer (pure computation, no UI)
                 calibrated = self.apply_calibration(sensor_values)
                 self.sensor_buffer.append(calibrated)
 
-                # Only predict if model is loaded
+                # Prediction — schedule on main thread
                 if self.model and len(self.sensor_buffer) >= SMOOTHING_WINDOW:
                     smoothed = np.mean(
                         list(self.sensor_buffer)[-SMOOTHING_WINDOW:],
                         axis=0
                     )
-                    self.predict_gesture(smoothed)
+                    self.after(0, lambda s=smoothed: self.predict_gesture(s))
 
-                # Tick demo state machine if active
+                # Demo tick — already scheduled on main thread
                 if self.demo_mode:
                     self.after(0, self.demo_tick)
 
             else:
-                # No packet received — yield briefly to avoid busy-spinning
                 time.sleep(0.01)
 
     def get_stable_prediction(self, prediction):
+        """Two-layer stability filter:
+        Layer 1 — majority vote: letter must appear in stability_threshold
+                  of the last prediction_history frames.
+        Layer 2 — consecutive streak: even after winning the vote, letter
+                  must appear in STREAK_REQUIRED consecutive frames before
+                  the display actually updates. This kills flicker at
+                  gesture boundaries.
+        """
+        # ── Layer 1: majority vote ────────────────────────────────────────────
         self.prediction_history.append(prediction)
 
         counts = {}
@@ -811,8 +851,19 @@ class GloveUI(tk.Tk):
             counts[p] = counts.get(p, 0) + 1
 
         most_common = max(counts, key=counts.get)
+        vote_passed = counts[most_common] >= self.stability_threshold
 
-        if counts[most_common] >= self.stability_threshold:
+        # ── Layer 2: consecutive streak ───────────────────────────────────────
+        if prediction == self.last_raw_prediction:
+            self.streak_count += 1
+        else:
+            self.streak_count = 1
+        self.last_raw_prediction = prediction
+
+        streak_passed = self.streak_count >= self.STREAK_REQUIRED
+
+        # Only commit if both layers agree
+        if vote_passed and streak_passed:
             self.stable_gesture = most_common
 
         return self.stable_gesture
@@ -893,6 +944,9 @@ class GloveUI(tk.Tk):
             else:
                 self.gesture_display.config(text="?")
                 self.gesture_name_label.config(text="Low confidence - hold steady")
+                # Reset streak so letter can't commit right after a confidence dropout
+                self.streak_count = 0
+                self.last_raw_prediction = None
             
             # Update top 3 predictions
             for i, (pred_label, conf_label, bar) in enumerate(self.pred_labels):
@@ -907,25 +961,30 @@ class GloveUI(tk.Tk):
     
     def update_sensor_display(self, values):
         """Update real-time sensor value display.
-        values[0:5]  = flex sensors (V)
-        values[5:8]  = accelerometer (raw counts)
-        values[8:11] = gyroscope (raw counts)
+        Uses sensor_config field order so any combination of active fields
+        works correctly — no hardcoded index assumptions.
         """
-        # Flex sensors
-        for i, (value_lbl, bar) in enumerate(self.sensor_labels):
-            if i < len(values):
-                value_lbl.config(text=f"{values[i]:.2f} V")
-                bar_value = max(0, min(100, (values[i] / 3.3) * 100))
-                bar['value'] = bar_value
+        sensor_fields = sc.get_active_sensor_fields()
 
-        # IMU readings
-        if len(values) >= 11:
-            axes = ["x", "y", "z"]
-            for j, axis in enumerate(axes):
-                accel_val = values[5 + j]
-                gyro_val  = values[8 + j]
-                self.imu_labels[f"acc_{axis}"].config(text=f"{accel_val:>8.1f}")
-                self.imu_labels[f"gyr_{axis}"].config(text=f"{gyro_val:>8.1f}")
+        flex_ui_idx = 0  # index into self.sensor_labels
+        for i, field in enumerate(sensor_fields):
+            if i >= len(values):
+                break
+            val = values[i]
+
+            if field.startswith("flex_"):
+                if flex_ui_idx < len(self.sensor_labels):
+                    value_lbl, bar = self.sensor_labels[flex_ui_idx]
+                    value_lbl.config(text=f"{val:.2f} V")
+                    bar["value"] = max(0, min(100, (val / 3.3) * 100))
+                    flex_ui_idx += 1
+
+            else:
+                # Map sensor_config field name to imu_labels key
+                # e.g. accel_x -> acc_x, gyro_y -> gyr_y
+                label_key = field.replace("accel_", "acc_").replace("gyro_", "gyr_")
+                if label_key in self.imu_labels:
+                    self.imu_labels[label_key].config(text=f"{val:>8.1f}")
     
     # ===== Demo Mode Methods =====
 
@@ -1319,6 +1378,13 @@ class GloveUI(tk.Tk):
                     state="normal", text="Record & Save"))
                 self.after(0, lambda: messagebox.showerror(
                     "Error", f"Failed to save: {str(e)}"))
+
+            finally:
+                # Resume recognition if it was running before recording started
+                if was_recognizing and self.ser and self.ser.is_open:
+                    self.is_recognizing = True
+                    threading.Thread(target=self.recognition_loop,
+                                     daemon=True).start()
 
         threading.Thread(target=_do_record_and_save, daemon=True).start()
 
