@@ -96,3 +96,35 @@ Please
 C or O
 
 
+A - good
+B - good
+C - redo + ok
+D - meh
+E - good
+F - good
+G - good
+H - good
+I - good
+J - LEAVE
+K - good
+L - good
+M - good surpringly
+n - ok?
+O - good
+P - good
+Q - good
+r - good
+S - good
+T - good
+U - good
+V - bad but fair
+W - good
+X - good
+Y - good
+Z - remove
+
+
+
+N, M, S - problematic
+
+J, Z, V - removed

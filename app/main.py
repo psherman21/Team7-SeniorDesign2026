@@ -38,8 +38,10 @@ class GloveUI(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Team 7 Senior Design Glove Demo")
-        self.geometry("925x700")
+        #self.attributes("-fullscreen", True)
         self.configure(bg=BG_COLOR)
+        # Allow Escape to exit fullscreen
+        self.bind("<Escape>", lambda e: self.attributes("-fullscreen", False))
 
         # Serial/ML variables
         self.ser = None
@@ -137,7 +139,7 @@ class GloveUI(tk.Tk):
         # Connection Control
         connection_frame = tk.LabelFrame(left_column, text="Connection", 
                                         bg=BG_COLOR, fg=PRIMARY_COLOR,
-                                        font=("Arial", 11, "bold"), padx=8, pady=2)
+                                        font=("Arial", 13, "bold"), padx=8, pady=4)
         connection_frame.pack(fill="x", pady=2)
         
         self.status_label = tk.Label(connection_frame, text="Status: Disconnected",
@@ -240,66 +242,41 @@ class GloveUI(tk.Tk):
         
         # ===== RIGHT COLUMN =====
         right_column = tk.Frame(main_container, bg=BG_COLOR)
-        right_column.pack(side="left", fill="both", expand=False, padx=5)
+        right_column.pack(side="left", fill="both", expand=True, padx=5)
 
-        # ===== TOP SECTION: side-by-side predictions | main display =====
-        top_section = tk.Frame(right_column, bg=BG_COLOR)
-        top_section.pack(fill="x", pady=(2, 0))
-
-        # --- LEFT PANEL: Top 5 Predictions ---
-        predictions_frame = tk.LabelFrame(top_section, text="Top 5 Predictions",
-                                          bg=BG_COLOR, fg=PRIMARY_COLOR,
-                                          font=("Arial", 11, "bold"), padx=6, pady=4)
-        predictions_frame.pack(side="left", fill="none", expand=False, padx=(0, 4), anchor="n")
-
-        self.pred_labels = []
-        for i in range(5):
-            row = tk.Frame(predictions_frame, bg=BG_COLOR)
-            row.pack(fill="x", pady=3)
-
-            gesture_lbl = tk.Label(row, text=f"#{i+1}: --", font=("Arial", 10, "bold"),
-                                   bg=BG_COLOR, fg=PRIMARY_COLOR, width=10, anchor="w")
-            gesture_lbl.pack(side="left", padx=(0, 3))
-
-            bar = ttk.Progressbar(row, length=140, mode='determinate', maximum=100)
-            bar.pack(side="left", padx=(0, 4))
-
-            conf_lbl = tk.Label(row, text="0%", font=("Arial", 10),
-                                bg=BG_COLOR, fg=PRIMARY_COLOR, width=5, anchor="w")
-            conf_lbl.pack(side="left")
-
-            self.pred_labels.append((gesture_lbl, conf_lbl, bar))
-
-        # --- RIGHT PANEL: Main detection display ---
-        detection_frame = tk.LabelFrame(top_section, text="Current Recognition",
+        # ===== CURRENT RECOGNITION — full width, fills available space =====
+        detection_frame = tk.LabelFrame(right_column, text="Current Recognition",
                                         bg=BG_COLOR, fg=PRIMARY_COLOR,
-                                        font=("Arial", 11, "bold"), padx=6, pady=4)
-        detection_frame.pack(side="left", fill="y", expand=False, padx=(4, 0))
+                                        font=("Arial", 14, "bold"), padx=10, pady=8)
+        detection_frame.pack(fill="both", expand=True, pady=(2, 4))
 
-        # Big letter display
+        # Big letter — centered, very large
         self.gesture_display = tk.Label(detection_frame, text="--",
-                                        font=("Arial", 72, "bold"),
+                                        font=("Arial", 220, "bold"),
                                         bg=BG_COLOR, fg=PRIMARY_COLOR)
-        self.gesture_display.pack(pady=(2, 0), anchor="center")
+        self.gesture_display.pack(expand=True, anchor="center")
 
         self.gesture_name_label = tk.Label(detection_frame, text="No gesture detected",
-                                           font=("Arial", 13),
+                                           font=("Arial", 18),
                                            bg=BG_COLOR, fg=PRIMARY_COLOR)
-        self.gesture_name_label.pack(pady=(0, 2))
+        self.gesture_name_label.pack(pady=(0, 4))
 
-        # Confidence score + bar underneath the letter
+        # Confidence score + bar
         self.confidence_label = tk.Label(detection_frame, text="0%",
-                                         font=("Arial", 18, "bold"),
+                                         font=("Arial", 28, "bold"),
                                          bg=BG_COLOR, fg=PRIMARY_COLOR)
         self.confidence_label.pack()
 
         style = ttk.Style()
-        style.theme_use('default')
+        style.theme_use("default")
         style.configure("green.Horizontal.TProgressbar", background=CONFIDENCE_HIGH)
 
-        self.confidence_bar = ttk.Progressbar(detection_frame, length=180,
-                                              mode='determinate', maximum=100)
-        self.confidence_bar.pack(pady=(2, 6))
+        self.confidence_bar = ttk.Progressbar(detection_frame, length=400,
+                                              mode="determinate", maximum=100)
+        self.confidence_bar.pack(pady=(4, 10))
+
+        # Keep pred_labels as empty list so predict_gesture doesn't crash
+        self.pred_labels = []
 
         # ===== DEMO MODE PANEL (hidden until activated) =====
         self.demo_frame = tk.LabelFrame(right_column, text="Demo Mode — Spell Your Name!",
@@ -366,15 +343,15 @@ class GloveUI(tk.Tk):
         # Real-time Sensor Values
         sensor_frame = tk.LabelFrame(right_column, text="Live Sensor Values",
                                      bg=BG_COLOR, fg=PRIMARY_COLOR,
-                                     font=("Arial", 11, "bold"), padx=4, pady=4)
+                                     font=("Arial", 13, "bold"), padx=8, pady=6)
         sensor_frame.pack(fill="none", pady=4, anchor="w")
         self.sensor_frame_ref = sensor_frame  # ref used by demo panel
 
         # Three equal columns: Flex | Accelerometer | Gyroscope
-        LABEL_FONT  = ("Arial", 10, "bold")
-        VALUE_FONT  = ("Arial", 10, "bold")
-        HEADER_FONT = ("Arial", 10, "bold")
-        ROW_PAD = 3
+        LABEL_FONT  = ("Arial", 13, "bold")
+        VALUE_FONT  = ("Arial", 13, "bold")
+        HEADER_FONT = ("Arial", 13, "bold")
+        ROW_PAD = 6
 
         flex_col  = tk.Frame(sensor_frame, bg=BG_COLOR)
         accel_col = tk.Frame(sensor_frame, bg=BG_COLOR)
@@ -402,7 +379,7 @@ class GloveUI(tk.Tk):
             value_lbl = tk.Label(row, text="0.00 V", font=VALUE_FONT,
                                  bg=BG_COLOR, fg=PRIMARY_COLOR, width=7, anchor="e")
             value_lbl.pack(side="left")
-            bar = ttk.Progressbar(row, length=100, mode='determinate', maximum=100)
+            bar = ttk.Progressbar(row, length=180, mode='determinate', maximum=100)
             bar.pack(side="left", padx=(4, 0))
             self.sensor_labels.append((value_lbl, bar))
 
@@ -961,30 +938,25 @@ class GloveUI(tk.Tk):
     
     def update_sensor_display(self, values):
         """Update real-time sensor value display.
-        Uses sensor_config field order so any combination of active fields
-        works correctly — no hardcoded index assumptions.
+        values[0:5]  = flex sensors (V)
+        values[5:8]  = accelerometer (raw counts)
+        values[8:11] = gyroscope (raw counts)
         """
-        sensor_fields = sc.get_active_sensor_fields()
+        # Flex sensors
+        for i, (value_lbl, bar) in enumerate(self.sensor_labels):
+            if i < len(values):
+                value_lbl.config(text=f"{values[i]:.2f} V")
+                bar_value = max(0, min(100, (values[i] / 3.3) * 100))
+                bar['value'] = bar_value
 
-        flex_ui_idx = 0  # index into self.sensor_labels
-        for i, field in enumerate(sensor_fields):
-            if i >= len(values):
-                break
-            val = values[i]
-
-            if field.startswith("flex_"):
-                if flex_ui_idx < len(self.sensor_labels):
-                    value_lbl, bar = self.sensor_labels[flex_ui_idx]
-                    value_lbl.config(text=f"{val:.2f} V")
-                    bar["value"] = max(0, min(100, (val / 3.3) * 100))
-                    flex_ui_idx += 1
-
-            else:
-                # Map sensor_config field name to imu_labels key
-                # e.g. accel_x -> acc_x, gyro_y -> gyr_y
-                label_key = field.replace("accel_", "acc_").replace("gyro_", "gyr_")
-                if label_key in self.imu_labels:
-                    self.imu_labels[label_key].config(text=f"{val:>8.1f}")
+        # IMU readings
+        if len(values) >= 11:
+            axes = ["x", "y", "z"]
+            for j, axis in enumerate(axes):
+                accel_val = values[5 + j]
+                gyro_val  = values[8 + j]
+                self.imu_labels[f"acc_{axis}"].config(text=f"{accel_val:>8.1f}")
+                self.imu_labels[f"gyr_{axis}"].config(text=f"{gyro_val:>8.1f}")
     
     # ===== Demo Mode Methods =====
 
